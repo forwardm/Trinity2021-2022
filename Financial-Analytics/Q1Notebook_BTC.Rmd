@@ -1,0 +1,303 @@
+---
+title: "R Notebook Financial Analytics Q1"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+
+
+
+------------------Start of Project-----------------
+
+
+
+The goal of this notebook and question is to estimate the probability of having cryptocurrency price (BTC/USD) from Coinbase exchange 
+be lower by at least 9% at the close on at least one of the next 5 trading days
+
+First we neeed to install the correct packages to ensure the code below works. One package used is for coinbase retrieval
+
+
+```{r}
+library(quantmod)
+library(TTR)
+library(jsonlite)
+library(glue)
+library(faraway)
+```
+
+We will be looking into retrieving the Bitcoin USD data from coinbase, this code returns around the last 300 days of bitcoin prices.
+The variable runFunc holds the data. If we want to retrieve data, need to access file from desktop.
+
+```{r}
+# create a function to retrieve daily data from coinbase
+retreive_daily_data <- function(pair, filename) {
+  url = glue("https://api.pro.coinbase.com/products/{pair}/candles?granularity=86400")
+  columnNames <- c('unix', 'low', 'high', 'open', 'close', glue('{pair} volume'))
+  mydata <- fromJSON(url)
+  df <- as.data.frame(mydata)
+  colnames(df) <- columnNames  # rename the columns
+  write.csv(df, file = filename)
+}
+
+
+newPair <- "BTC-USD"
+fileName <- glue("dailyData{newPair}.csv")
+runFunc <- retreive_daily_data(newPair, filename = fileName)
+runFunc
+
+
+```
+
+
+This block of code looks into retrieving the Bitcoin USD data from YahooFinance, the reason
+that YahooFinance is more desired is that it is easier to pick different time ranges of 
+BTC to USD price. This code retrieves BTC-USD data for one month, three months, 6 months,
+1 year, 5 years.
+
+
+```{r}
+#get data from yahoo in 30 days, 3months, 6, months, 1 yr, 5 yr
+oneYearBTC <- getSymbols("BTC-USD", src="yahoo", 
+           from=Sys.Date()-365,
+           to=Sys.Date(), auto.assign = FALSE)
+
+oneMonthBTC <- getSymbols("BTC-USD", src="yahoo", 
+                         from=Sys.Date()-30,
+                         to=Sys.Date(), auto.assign = FALSE)
+threeMonthBTC <- getSymbols("BTC-USD", src="yahoo", 
+                          from=Sys.Date()-90,
+                          to=Sys.Date(), auto.assign = FALSE)
+sixMonthBTC <- getSymbols("BTC-USD", src="yahoo", 
+                          from=Sys.Date()-180,
+                          to=Sys.Date(), auto.assign = FALSE)
+fiveYearBTC <- getSymbols("BTC-USD", src="yahoo", 
+                         from=Sys.Date()-365*5,
+                         to=Sys.Date(), auto.assign = FALSE)
+```
+
+
+Next we want to view the data and understand its dimensions and make sure it is expected output. 
+We see that it is an xts (will need to change type later) and has nrows of 366 (year + 1),
+we will mostly be concerned with closing price data. Additionally we choose which dataset we want to 
+analyze.
+
+```{r}
+#view data
+class(oneYearBTC)
+head(oneYearBTC)
+nrow(oneYearBTC)
+
+#choose which timeline we want to analyze 1 yr, 1 month, 6 month
+chooseTimeFrame <- oneYearBTC
+```
+The data is being restructured to more easily allow further functions to work. The 
+data will no longer be xts, and only the closing price is chosen as point of interest.
+
+```{r}
+#convert from timeseries to static, as does not need dates, already ordered seq
+data <- data.frame(date=index(chooseTimeFrame), coredata(chooseTimeFrame))
+head(data)
+
+
+#--------use only closing Price data-------#
+close <- data[,"BTC.USD.Close"]
+length(close)
+head(close)
+```
+Next the daily returns need to be created, this gives datapoints across the timeframe (1 year) of 
+what the returns were across this period. Additionally, the log is taken to. Allowing this to occur
+will give us a distribution to work off of in further steps. Shows the returns, max/min for a day.
+Shows that daily return does not exceed +/- 15% and median is around 0 slightly (+). Thus 
+historically its possible to have single day return of -9%.
+
+```{r}
+#--------------find the daily log return ---------$
+n <- length(close)
+lrest <- log(close[-1]/close[-n])
+head(lrest)
+max(lrest)
+min(lrest)
+median(lrest)
+```
+
+
+
+Next the returns of closing prices needs to be visualized and understanding what type of 
+distribution is occurring in our data. The histogram plots the data, where it shows
+the log returns are normally distributed with "fatter" tails on the left and right of the 
+distribution. This is important as it infers that there are more days where the returns are 
+extreme, thus this might lead to a larger likelihood of the stock dropping 9% in a day.
+
+The Shapiro test is performed to determine whether or not the distribution is normal.
+Considnering the p value is <0.05 we can statistically say the distribution return is not normal
+Thus we have to look at QQ plots to understand where its not normal.
+
+The QQ plots indicate that the graph is both right and left skewed, thus it has "fatter" tails as 
+mentioned before. This means that when creating random variables for return in simulations, 
+the data will be more likely to have larger ranging extreme values. Which could impact the 
+9% return loss in a day. But additionally, there are the (+) extreme days which increases
+the BTC price greatly.
+
+```{r}
+#------------- show histogram - looks normal, need to also do normal dist test----------#
+hist(lrest, breaks=14)
+summary(lrest)
+
+return.density = density(lrest) # estimate kernel density
+plot (return.density) # plot the estimated density
+
+## Shapiro-Wilk test 
+shapiro.test(lrest)
+
+library(ggpubr)
+ggqqplot(lrest)
+#QQ
+qqnorm(lrest)
+qqline(lrest)
+#output implies symmetrics with fat tails
+
+
+
+```
+
+Next we need to determine how to randomly generate the distribution when determining
+next days expected return. This random generation is important for simulation 
+and determining next day return based off of the historical data.
+
+plot(return.density_1)
+plot(return.density)
+
+Allows us to compare random generator with acutal distrtibution, if it is similar enough
+it can be utilized.
+
+```{r}
+#-------make normal dist generator for log return and confirm dist--------#
+normal_dist <- rnorm(10000, mean=mean, sd=std)
+qqnorm(normal_dist)
+qqline(normal_dist)
+
+#h <- dt(lrest, df = 5)
+
+return.density_1 = density(normal_dist)
+plot(return.density_1)
+plot(return.density)
+```
+
+
+Next we will be creating a set of logical steps to determine the probability of 
+the return being greater than -9%.
+
+First we will set some global variables that will be utilized under the simulation
+
+```{r}
+
+
+
+#---------- find std and mean of the dataset for random number generator--------#
+std <- sd(lrest)
+mean <- mean(lrest)
+var <-var(lrest)
+
+#make currentpirce last day, set ratio and goal ratio
+currentDayPrice <- close[length(close)]
+nineLess <- 0.91
+ratio <-1
+k<-1
+```
+
+
+
+```{r}
+
+```
+
+
+
+This loop finds when the next day price is less than 9% of the current day. It
+does this by generating  returns (based off of distribution) and iterating through
+this sequence 10,000 times (to be significant). It then does this 100 more times and tells
+the probability of success in the iterations.
+
+It can be seen succcess ranges from 94-95% for the one year period. Thus that means that
+only 5-6% of the time will there be a daily return of (-9%) in the next 5 days.
+
+
+
+```{r}
+
+
+#iterate 100 times by 10000 iterations 
+for(k in 1:100){
+    i<-1
+    fail<-0
+    success <-0
+ 
+    
+    #iterate 10000 times
+    for (i in 1:10000){
+      #reset parameters   after it reaches j=5+
+      currentDayPrice_1<- currentDayPrice
+      j<-1
+      ratio <-1
+      
+      #less than 5 days and close/previousclose > 0.91
+      while(j<6 & ratio>nineLess){
+      
+        normal_dist <- rnorm(1, mean=mean, sd=std)
+
+        lastdayPrice <- currentDayPrice_1
+     
+        currentDayPrice_1 <- (1+normal_dist)*lastdayPrice
+     
+        ratio <- currentDayPrice_1/lastdayPrice
+  
+        #if we have reached the 5 days and price the ratio day to day is greater 
+        #than -9% than count 
+        if(j==5 & ratio>nineLess){
+          success <- success + 1
+       
+        }
+        #if over these 5 days ratio is less than 0.91 count as fail
+        if(ratio<=nineLess){
+          fail <- fail+1
+         
+        }
+        
+      
+        j<-j+1
+        
+      }
+      i<-i+1 
+    }
+  
+    success
+    fail
+    #indicates percent of time that the closing price DID NOT
+    # decrease by 9% from day to day over next 5 days.
+    overall_rate <- success/(success+fail)*100
+    print(success/(success+fail)*100)
+}
+
+```
+
+Print the most recent success rate 
+
+For the one year time line it is 94.89% of not being (-9%) return in the next 5 days, 5% chance 
+of it occurring.
+
+```{r}
+overall_rate <- success/(success+fail)*100
+    print(success/(success+fail)*100)
+    print(fail/(success+fail)*100)
+```
+
