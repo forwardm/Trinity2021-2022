@@ -1,2 +1,2 @@
-# Trinity2021-2022
-This repository is for projects done for Trinity College Dublin Business Analytics 2022. Each course will be under a different branch with the code and descriptions of projects.
+# BUS7143-Data-Forecasting-Group-6
+TCD BU7143 Business Data Forecasting 2021/22 - Group 6 Prouject - Predicting EURO / USD Prices Through Multivariable &amp; Moving Average Forecasting​
