@@ -1,0 +1,490 @@
+---
+title: "Financial Analytics Factor Analysis"
+author: "Matthew Forward"
+output: html_notebook
+---
+
+# Looking at Facotr Analysis of Crypto Currencies and Traditional Financial Instruments
+
+This notebook will be exploring the factors that relate between traditional financial instruments
+and cryptocurrency. Correlations, economic factor models and statistical factor models will
+be applied to a set of data.
+
+### Loading Libraries Required
+
+```{r}
+#--------packages----------#
+library(quantmod)
+library(TTR)
+library (xts)
+library (zoo)
+library (PerformanceAnalytics)
+library(pastecs)
+library(corrplot)
+library (psych) # the library for factor analysis
+library (GPArotation) # to estimate oblimin rotation
+
+```
+
+
+## Obtaining Financial Data
+
+This section will be taking the last 5 years worth of data from YahooFinance, for
+7 traditional financial instruments (dow jones index, nasdaq index, oil, gold,
+us Treasury bonds, euro-USD and LSX index); additionally, 7 crpytocurrencies data is
+collected (BTC,ETH,LTC, binance,cardano, monero, dogecoin).
+
+The closing price data is then merged into one variable to perform analysis.
+
+```{r}
+
+#----------Downloading Data-----------#
+
+#7 traditional
+numberOfYears <-5
+dow <- getSymbols("^DJI", src="yahoo", 
+                    from=Sys.Date()-365*numberOfYears,
+                    to=Sys.Date(), auto.assign = FALSE)
+
+industrial <- getSymbols("^IXI", src="yahoo", 
+                         from=Sys.Date()-365*numberOfYears,
+                         to=Sys.Date(), auto.assign = FALSE)
+
+usInterestRate <- getSymbols("^TNX", src="yahoo", 
+                             from=Sys.Date()-365*numberOfYears,
+                             to=Sys.Date(), auto.assign = FALSE)
+
+nasdaq <- getSymbols("^IXIC", src="yahoo", 
+                        from=Sys.Date()-365*numberOfYears,
+                        to=Sys.Date(), auto.assign = FALSE)
+
+oil <- getSymbols("BZ=F", src="yahoo", 
+                    from=Sys.Date()-365*numberOfYears,
+                    to=Sys.Date(), auto.assign = FALSE)
+
+gold <- getSymbols("GC=f", src="yahoo", 
+                  from=Sys.Date()-365*numberOfYears,
+                  to=Sys.Date(), auto.assign = FALSE)
+
+
+
+euroUSD <- getSymbols("EURUSD=X", src="yahoo", 
+                             from=Sys.Date()-365*numberOfYears,
+                             to=Sys.Date(), auto.assign = FALSE)
+londonSX <- getSymbols("^FTSE", src="yahoo", 
+                       from=Sys.Date()-365*numberOfYears,
+                       to=Sys.Date(), auto.assign = FALSE)
+
+
+tail(londonSX)
+
+# 7 cryptos
+BTC <- getSymbols("BTC-USD", src="yahoo", 
+                       from=Sys.Date()-365*numberOfYears,
+                       to=Sys.Date(), auto.assign = FALSE)
+
+ETH <- getSymbols("ETH-USD", src="yahoo", 
+                       from=Sys.Date()-365*numberOfYears,
+                       to=Sys.Date(), auto.assign = FALSE)
+
+LTC <- getSymbols("LTC-USD", src="yahoo", 
+                     from=Sys.Date()-365*numberOfYears,
+                     to=Sys.Date(), auto.assign = FALSE)
+
+binance <- getSymbols("BNB-USD", src="yahoo", 
+                     from=Sys.Date()-365*numberOfYears,
+                     to=Sys.Date(), auto.assign = FALSE)
+
+cardano <- getSymbols("ADA-USD", src="yahoo", 
+                      from=Sys.Date()-365*numberOfYears,
+                      to=Sys.Date(), auto.assign = FALSE)
+
+monero <- getSymbols("XMR-USD", src="yahoo", 
+                      from=Sys.Date()-365*numberOfYears,
+                      to=Sys.Date(), auto.assign = FALSE)
+
+dogecoin <- getSymbols("DOGE-USD", src="yahoo", 
+                      from=Sys.Date()-365*numberOfYears,
+                      to=Sys.Date(), auto.assign = FALSE)
+
+
+# merge data and remove days where some have NAs
+
+closingPrices <- cbind( dow$DJI.Close,industrial$IXI.Close, usInterestRate$TNX.Close,
+                        nasdaq$IXIC.Close, oil$`BZ=F.Close`,
+                        gold$`GC=F.Close`, euroUSD$`EURUSD=X.Close`,
+                        londonSX$FTSE.Close, BTC$`BTC-USD.Close`, ETH$`ETH-USD.Close`,
+                        LTC$`LTC-USD.Close`,binance$`BNB-USD.Close`,cardano$`ADA-USD.Close`,
+                        monero$`XMR-USD.Close`,dogecoin$`DOGE-USD.Close`)
+
+nrow(closingPrices) 
+ncol(closingPrices)
+```
+
+
+## Transforming Data and Finding Log Returns
+Considering their is missing data (mostly from commodities) and extra data (cryptocurrencies trade
+365 days a year), some of the rows and data need to be omitted so then log returns can be performed 
+on the same time series.
+
+Log returns are then calculated on the closing price of days that have the same time frame.
+
+In the 5 year dataset with 253 trading days/year, the dataset analyzed gets 1097/1265 possible
+data points.
+
+```{r}
+#see that crpytos are traded over 365 days, while lots of missing days for traditional assets.
+# need to omit entire rows of NAs before calculating logs.we get 1097/1265 - lots of issues
+# with index and commodities.
+summary(closingPrices)
+nrow(closingPrices)
+
+#omit entire row 
+closingPrices <- na.omit(closingPrices)
+nrow(closingPrices)
+summary(closingPrices)
+head(closingPrices)
+tail(closingPrices)
+
+#find log returns of omitted.
+logReturn <- Return.calculate( closingPrices , method = "log") 
+head(logReturn)
+#get rid of first row of NAs
+logReturn <- na.omit(logReturn)
+nrow(logReturn)
+
+```
+
+## Correlation Testing
+
+Next we want to look at correlation and determine what returns relate to eachother, this will give  a basic
+understanding of what to expect from model factors.
+
+Theres 5 observations:
+1. The indexes all have a relatively strong positive correlation with one another and positive 
+correlation with oil returns.
+2. The cryptocurrencies mostly have a positve low correlation with all of the indexes.
+3. The cyrptocurrencies have a strong positive correlation with one another.
+4. Gold and US Treasury bonds are negatively correlated to one another and
+have low  correlation with most other financial instruments.
+5. Eur-USD currency exchange does not seem to be related to anything.
+
+From these observations a rough guess of the amount of groups for factor analysis would be 
+in the 3-5 range. More analysis will be done below.
+
+```{r}
+#corplot data to see which returns are strongly correlated with one another.
+cor(logReturn)
+corrplot(cor(logReturn), method = 'number')
+
+
+```
+
+# Factor Models:
+
+## Economic Factor Model:
+
+We will be looking at the economic factor model and the influence of the errors of three key
+macroeconomic influences: US interest rates and industrial production index and dow jones index
+and their affect on cryptocurrencies & traditional assets returns
+
+Below we create a regression based off of the three influences mentioned and plot the r-squared
+Overall the macro model does not fit that well to all of the variables. However on
+an individual scale, the dow index, interest rates and industrial index show some resemblance
+and factor into some of the returns of others.
+
+Looking at pure rsquared, the LSX exchange and NASDAQ fit the best due to the fact that these are general
+indexes so macro factors will have a higher relationshop to them compared to individiaul stocks
+or cryptocurrency prices. This is expected when initially looking at correlation above.
+
+Other observations that support above, the EURUSD and gold isnt really affected by
+the effects of the dow whereas the other returns are more highly influenced.
+
+Another observation is that most cryptos are influenced in same direction.
+
+```{r}
+
+## FACTOR Analysis
+factors <- logReturn
+
+macroFactors <- xts(logReturn[,1:8])
+
+dow_arima <- arima(macroFactors[,1]) # autoregressive
+dow_res <- dow_arima$residuals
+
+interest_arima <- arima(macroFactors[,2]) # autoregressive
+interest_res <- interest_arima$residuals
+
+industrial_arima <- arima(macroFactors[,3]) # autoregressive
+industrial_res <- industrial_arima$residuals
+
+residuals <- cbind(industrial_res, dow_res, interest_res)
+
+
+summary(residuals)
+
+# residuals of the AR (5) modle (the interpretations of the residuals is that they are unexpected shocks)
+lmfit = lm(factors[,4:15]~factors$IXI.Close+factors$DJI.Close+factors$TNX.Close) #fit a regression bitcoin is a set of teh dow, interest
+# rate industrial and residuals from the AR models
+
+
+slmfit = summary(lmfit) #summary of the regression
+slmfit
+rsq = rep(0,12) #create a variable rsq with seven 0 values
+
+
+for (i in 1:12){rsq[i]= slmfit[[i]][[8]]} # we substruct the values of R2 from each of 7 models
+beta_industrial = lmfit$coef[2,] # extract all industrial
+beta_dow = lmfit$coef[3,] # extract all dow
+beta_interest = lmfit$coef[4,] # extract all interest betas
+
+
+#par(mfrow=c(1,12)) # building 4 graphs in a row
+names(beta_dow)
+barplot(rsq,horiz=T,names=names(beta_dow),main="R squared") #Creates a bar plot with vertical or horizontal bars.
+barplot(beta_industrial,hori=T,main="beta Industrial") #Creates a bar plot with vertical or horizontal bars.
+barplot(beta_dow,hori=T,main="beta Dow") #Creates a bar plot with vertical or horizontal bars.
+barplot(beta_interest,hori=T,main="beta Interest") #Creates a bar plot with vertical or horizontal bars.
+```
+
+
+
+
+
+
+
+### Statistical Model: Determining if Data is Factorable 
+First we want to determine whether or not our data is factorable.
+
+First Bartletts Test of Sphericity is run to determine whether or not data is
+factorable. Consdiering the P-value is 0, it means that data within intercorrelate with
+one another, thus that means they could potentially be group together and factored.
+
+Additionally KMO is run to determine  factorability of the overall model and the independent variables
+Overall the model has a high MSA above the cutoff of 0.6 which means factor analysis can be run. One thing 
+to note on an independent level, EUR-USD has a low MSA score, similar to our observation through 
+correlations. We do not need to drop the variable at the moment, but aligns with initial obseravtion
+that it may not be factorable or influence a factor in any significant manner.
+
+```{r}
+equities = logReturn
+describe(equities) # general description of the data 
+
+##Assessing the Factorability of the Data
+#Bartlett's Test of Sphericity
+cortest.bartlett(equities)
+
+#KMO
+KMO(equities)
+```
+## Determining Number of Factors to use in Model
+
+Next a screen plot and parallel analysis scree plot is run to determine
+how many factors should be used.
+
+The scree plot indicates to use 4 factors, and parallel analysis 3-4.
+Similar to our idea through the corrplots we will run factor analysis 
+on 3,4 and maybe 5 factors and compare and see what is more interpretable
+and understandable.
+
+
+
+
+```{r}
+
+# scree plot
+scree(equities)
+
+#Parallel Analysis
+fa.parallel (equities) #
+
+
+
+```
+
+
+
+## Creating a 3 Factor Model
+
+We want to create and analyze a 3 factor model.
+
+The factors created are:
+1. Cryptocurrency model
+2. Industrial / Index Fund returns
+3. Interest Rate and  negative Gold
+
+Interestingly EURUSD and Oil are not included in the factors. These groupings are quite 
+similar to initial observations made with analyzing the correlations.
+
+The dow and index stocks communality are most explainable alongside the cryptocurrencies.
+
+Subsequently the commodities dont have much communality thus the factors that are created in 3 factor 
+model dont really explain commodites/fiat currency. Thus these factors probably shouldnt be used
+if further analysis was to be used from in estimating currency/commodities.
+
+Looking at uniqueness, it follows the communalities, in that gold, oil and EurUSD are
+all high due to being unique and not having much multicollinearity. Whereas the dow has a
+lot of multicolinearitys and the cryptos with eachtoher.
+
+On interesting thing to note is that LSX index is relatively high for uniqueness(0.57)
+ever though similar exchange like the dow is low.
+
+
+
+
+
+
+```{r}
+# estimation factor model
+factor.model <- fa(equities, nfactors = 3, fm="ols", max.iter = 100, rotate = "oblimin")
+# we estimate a factor model with 3 factors, estimated by means of OLS, 100 is the number of iterations or attempts to use when identifying the "best"" solution
+# rotate - we apply oblimin rotation, allowing factors to correlate.
+summary(factor.model)
+
+# make it visual
+fa.diagram(factor.model) # 
+
+#loadings
+factor.model$loadings
+# Communality 
+factor.model$communality
+
+#Eeigenvalues
+factor.model$e.values
+
+#Percentage of Variance Accounted For
+100*factor.model$e.values/length(factor.model$e.values)
+
+#see how much infleunce that factors have
+plot(1:15,100*factor.model$e.values/length(factor.model$e.values))
+
+print(factor.model$loadings, cutoff=0, digits=3)
+print(factor.model$Structure, cutoff=0, digits=3)
+```
+
+
+## Creating 4 Factor Model
+
+We want to create and analyze a 4 factor model.
+
+The 4 factor mnodel is highly similar to 3 factors with following groups
+
+1. Cryptos
+2. Dow, Nasdaq, and Industrial
+3. London stock exchange, interest rate and brent crude
+4. Gold
+
+Similarly it leaves Euro/USD out of the model of significance. 
+
+Factor 1 really explains  most cryptocurrencies well, besides dogecoin which is 
+not as strong, this could be due to volatility and external influence of returns 
+(ie Musk).
+
+Factor 2 explains the index quite well, however its surpsiing that it does not explain
+the LSX index well as one would expect that exchange to be similar to the US counterparts.
+
+Factor 3 is just gold, and thus just putting into a model would be putting in price of
+gold, does not help that much just that its of infleunce on its own.
+
+Factor 4 is harder to interpret and think of reasons why.
+
+Looking at the strctures, Factor 3 does not seem to do anything beyond gold and once again
+eurusd is not really explained well. Thus the variance in EURUSD is not accounted for well.
+Additionally we start seeing accounting of variance between factors suggesting they are
+quite similar (Factors 2 & 4)
+
+
+```{r}
+# estimation factor model
+factor.model <- fa(equities, nfactors = 4, fm="ols", max.iter = 100, rotate = "oblimin")
+
+summary(factor.model)
+# we estimate a factor model\
+
+# make it visual
+fa.diagram(factor.model) # 
+#loadings
+factor.model$loadings
+# Communality 
+factor.model$communality
+
+#Eeigenvalues
+factor.model$e.values
+
+#Percentage of Variance Accounted For
+100*factor.model$e.values/length(factor.model$e.values)
+
+#see how much infleunce that factors have
+plot(1:15,100*factor.model$e.values/length(factor.model$e.values))
+
+print(factor.model$loadings, cutoff=0, digits=3)
+print(factor.model$Structure, cutoff=0, digits=3)
+```
+
+
+## 5 Factors 
+Quick look at 5 factor model, 5th factor does not have any values, thus we only need
+to analyze a 3 and 4 factor model.
+
+
+
+
+```{r}
+# estimation factor model
+factor.model <- fa(equities, nfactors = 5, fm="ols", max.iter = 100, rotate = "oblimin")
+
+summary(factor.model)
+# we estimate a factor model\
+
+# make it visual
+fa.diagram(factor.model) # 
+
+#loadings
+factor.model$loadings
+```
+
+
+
+
+# Conclusion
+
+
+The 3 factor model seems to be the better of the factor models to use. The 5 factor model
+produces a factor with no explainability to the variables thus this is disregarded.
+
+The 3 factor makes more sense as it has indexes which are usually similar, gold and interest
+rates which can be grouped together as something that is less not direct index returns, and 
+cryptocurrencies grouped together, with EURUSD not as an influece.
+
+The 4 factor model shouldnt be used as 1 factor explains only 1 variable, thus the factor
+only tells about gold and having that additional factor does not make it overall more explainable.
+Additionally in the 4 factor model there is more explainability between factor 2 and 4,
+and thus these factors become quite related, which doesnt help when trying to differentiate 
+different groups. Interstingly the dow had the highest eigenvalue and was thus the 
+most explainable by the factors. Probably represenative as the dow is a barometer of macro
+factors and performing stocks across most industries.
+
+Thus the numeric recommends 3-4 models, and based off of understandability and what the models
+create, a 3 model soultion is likely the best model.
+
+the 3 factor model could be used to generally understand the markets in terms of general indexes
+and cryptocurrency returns, one should be hesitant with both the 3&4 factor models to use it
+for further investigations into fiat currencies, as the log returns on EURUSD was not influenced by
+any of the factors created.
+
+Overall the factor models were similar to initial observations when analzying correlation matrix, 
+thus the factor model could be used in scenarios mentioned above.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
