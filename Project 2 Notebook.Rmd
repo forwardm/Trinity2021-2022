@@ -1,0 +1,1285 @@
+---
+title: "Group Assignment"
+subtitle: BU7152 Financial Modelling at Trinity Business School
+date: "22/04/2022"
+output:
+  html_document:
+    df_print: paged
+authors:
+- Jiuzhe Song
+- Marie Schürmann
+- Matthew Forward
+- Michael Scholz
+- Shagun Narula
+---
+
+# Project 1: **Warm up your creativity**
+
+## Task
+
+> Estimate probability of having cryptocurrency price from Coinbase exchange lower by at least 9% at the close on at least one of the next 5 trading days
+>
+> (Hint: cryptocurrencies are traded 7 days a week)
+
+# Project 2: Exploratory Analysis
+
+## Task
+
+> Select any 2 financial time series of interest, e.g., stocks, bonds, cryptocurrencies etc. Min 5 years of observations (the longer -- the better) from YahooFinance, and estimate the following tests:
+>
+> -   General statistics, i.e., mean, median, variance, quantiles, kurtosis and skewness.
+>
+> -   Check a potential presence of outliers.
+>
+> -   Univariate tests for each series: Shapiro-Wilk, Kolmogorov-Smirnov, Jarque-Bera, D'Agostino test of skewness, Anscombe-Glynn test of kurtosis, Bonett-Seier test of kurtosis, Anderson-Darling goodness of fit test.
+>
+> -   Multivariate tests: Pearson's product moment correlation coefficient t-test, Spearman rank correlation test, Kendall's tau correlation coefficient test
+>
+> -   Two sample t-test for the difference in sample means
+>
+>     Estimate granger causality and volatility.\
+>     Visualize. Interpret the results. Provide recommendations.
+
+```{r Initialising Packages, message=FALSE, warning=FALSE, include=FALSE}
+library(xts) #eXtensible Time Series (Uniform Format for Time-series)
+library(quantmod) #Quantitative Financial Modelling and Trading Framework for R
+library(tidyquant) #Tidy Quantitative Financial Analysis
+library(PerformanceAnalytics) #Econometric Functions for Performance and Risk Analysis of Financial Instruments or Portfolios
+library(lmtest) #Testing Linear Regression Models
+library(ggplot2) #Visualisation
+library(fBasics) #Functions for Basic Properties of Financial Returns and Related Quantities
+library(DescTools) #Descriptive Statistics
+library(e1071) #Statistic and Probablistic Algorithms
+library(faraway) #Half Normal Plot
+library(moments) #Functions: Kurtosis and Skewness
+library(ADGofTest) #Anderson-Darling GoF test
+library(tseries) #Time Series Analysis and Computational Finance
+library(rugarch) #GARCH models
+```
+
+## Introduction of the Two Time Series and First Impression
+
+We selected the following two commodities for our analysis: **Gold prices** & **Crude Oil prices**. In our exploratory analysis we consider the past six years, i.e. 21st April 2016 to 21st April 2022.
+
+Primarily, this analysis could be interesting for investors who want to understand each commodity and its relationship to each other in order to meet decisions about investments.
+
+We focus on the Close prices. In the following, we visualized the time series with its closing price, which is the last price of the trading day. The gold price seems to have lower fluctuation as the crude oil price. Both had its peak around the beginning of 2020 and its lowest price around fall 2018.
+
+We tried to gather a clearer picture of the two commodities time series through decomposing the time series in their parts: trend, seasonality and random. We cannot describe a clear upwards or downwards trend. Anyways it is interesting that the trend seems to be similar for both commodities: in the beginning it is slightly decreasing and then we can identify an increase for both commodities around 2020-2021. Since then, it's a lightly decreasing trend for Gold while it is on a similar level for Crude Oil. Both time series seem to have a seasonality which is repeating in each quarter. For Gold the log returns are higher in the beginning of the quarter and then falling sharply down to keep fluctuating on a lower level. For Crude Oil the seasonality is a steep up and down during the whole quarter. The random series is the remainder of the data less the trend and seasonality and could be other one-time, non-recurring effects, e.g. global phenomena or just error or non-explainable. For example in April 2020, we can see an extreme decrease for Crude Oil which can be explained by the starting Covid-19 pandemic which let the oil price decrease immensely.
+
+```{r Extracting the Data}
+getSymbols(c("GOLD", "CL"),src="yahoo",from="2016-04-21",to="2022-04-21")
+#From getSymbols() we receive an object with five columns: open, high, low, close, volume
+
+data.GOLD <- GOLD
+data.CL <- CL
+Gold.xts <- xts(data.GOLD$GOLD.Close, order.by=index(data.GOLD))
+CL.xts <- xts(data.CL$CL.Close, order.by=index(data.CL))
+
+plot(Gold.xts, main="Gold", cex=0.7) #plotting the closing price of Gold
+plot(CL.xts, main="Crude Oil", cex=0.7)
+
+Gold_ts <- ts(Gold.xts, start = 0, frequency = 90)
+plot(decompose(Gold_ts))
+
+CL_ts <- ts(CL.xts, start=0, frequency = 90)
+plot(decompose(CL_ts))
+```
+
+## General Statistics
+
+We transformed in the next steps our time series:
+
+1\. to the new variable `return` and then
+
+2\. to the new variable `logarithmic return`.
+
+The financial `return` is the difference of the price at day *Pt* to the price at the prior day *Pt-1* divided by its price at prior day's *t-1.* Therefore it represents the gain or loss of an price in percent. The first day's data does not make sense as there is no prior day's data available. Therefore, we eliminated it.
+
+The `logarithmic return` represents the financial data normalized because it takes into account the time period in total. We assume that the gold and crude oil prices are log normally distributed, therefore the log returns are normally distributed.
+
+```{r}
+GOLD.return = diff(log(coredata(Gold.xts)))
+
+#Removing the First Observation:
+GOLD.return = GOLD.return [-1]
+
+plot(GOLD.return, main = "Gold daily returns", xlab = "index", type = "l", ylab = "log return") # plot the graph
+
+```
+
+The log return of gold shows high variability from -10% to over 13% around index 1000 as well as in the beginning of the time series. There are definitely clusters in the time series that show large price changes and tranquility at other times.
+
+```{r}
+CL.return = diff(log(coredata(CL.xts)))
+
+#Removing the First Empty Observation, Received after Return Calculation:
+CL.return = CL.return [-1] 
+
+plot(CL.return, main = "Crude Oil daily returns", xlab = "index", type = "l", ylab = "log return") # plot the graph
+```
+
+We can see that there are also clusters of higher variability in the log return of crude oil and clusters of less price changes in others. Especially again around index 1000, we can identify extreme price changes in both directions. In general, less variability can be identified compared to gold. We will analyse this in the further parts.
+
+------------------------------------------------------------------------
+
+Let's visualize the log return's distribution first:
+
+```{r}
+hist(GOLD.return, breaks=50)
+return.GOLD.density <- density(GOLD.return)
+plot(return.GOLD.density)
+
+hist(CL.return, breaks=50)
+return.CL.density <- density(CL.return)
+plot(return.CL.density)
+```
+
+```{r}
+#Location for Gold
+mean(GOLD.return) #mean
+mean(GOLD.return, trim=0.1) #trimmed mean with 10% cut off of extreme values
+median(GOLD.return) #median
+
+#Location for Crude Oil
+mean(CL.return) #mean
+mean(CL.return, trim=0.1) #trimmed mean with 10% cutoff of extreme values
+median(CL.return) #median
+```
+
+For both of them, the mean of log return is close to zero (gold: 0.03%, crude oil: 0.01%) which means that there is a slow growth in returns on average. For both Gold and Crude Oil, the median log return with 0.048% respective 0.036% is higher than the mean log return which means that the distributions are not symmetrical but skewed to the left.
+
+If we exclude 10% of the extreme values on both sides of the distributions, gold's trimmed mean is slightly smaller than the regular mean but very close, so it seems that the extreme values on both sides are similarly strong.
+
+In contrast, Crude Oil's trimmed mean is much higher than the regular mean. This indicates that there was an extreme low value having an high impact on the mean. The trimmed mean is located nearer to the median than to the mean. The median is said to be more robust against outliers in the data. Those outliers also mean that there might be more skewness in the distribution which we will analyse further in the following.
+
+```{r}
+#Kurtosis & Skewness
+GOLD.return2 = diff (log(coredata(data.GOLD$GOLD.Close))) 
+kurtosis(GOLD.return2)
+skewness(GOLD.return2)
+
+#Kurtosis & Skewness
+CL.return2 = diff (log(coredata(data.CL$CL.Close))) 
+kurtosis(CL.return2)
+skewness(CL.return2)
+```
+
+The indicator skewness reveals that gold is only really slightly skewed positively by 0.005. This is very close to zero (a normal distribution would be 0). We already have expected that from the centrality location analysis. Crude oil is also really slightly skewed towards the left by 0.08 and therefore higher than gold which we also already expected but still close to the skewness of a normal distribution. This indicates that the both returns are slightly growing.
+
+The kurtosis of a normal distribution is 3. Both distributions show a value which is higher than 3, i.e. gold 7.4 and crude oil 16.2, therefore its tails are longer than in a normal distribution and this is called **leptokurtic**. The tails of crude oil are much longer than for gold because the kurtosis value is much higher which means that those extreme values have a higher likelihood than in a normal distribution.
+
+That both distributions are leptokurtic means for the log returns that there it is occasionally likely to have extremely high or low returns, as for example we can see in both time series high and low extremes during the beginning of the Covid-19 pandemic in 2020 (around index 1000).
+
+```{r}
+#Variability for Gold
+var(GOLD.return) #variance
+sd(GOLD.return) #standard deviation
+
+MeanAD(GOLD.return) #mean absolute deviation
+mad(GOLD.return) #median absolute deviation
+
+boxplot(GOLD.return2, horizontal=TRUE, main="Gold Return")
+
+range(GOLD.return) #minimum and maximum value (range)
+quantile(GOLD.return) #quantiles
+quantile(GOLD.return, probs=c(0.05, 0.95)) #quantiles 5% and 95%
+tauseq = seq(.1,.95,.1) # generate sequesnce of numbers that will be used as quantiles
+quantile(GOLD.return, tauseq)
+GOLD.IQR <- IQR(GOLD.return) #Interquantile range (75% quantile - 25% quantile)
+GOLD.IQR
+
+GOLD.outliers.lower <- -0.0118947877 -1.5*GOLD.IQR #Q25% = -0.0118947877
+GOLD.outliers.lower
+
+GOLD.outliers.upper <- 0.0118599231 +1.5*GOLD.IQR #Q75% = 0.0118599231
+GOLD.outliers.upper
+
+#Variability for Crude Oil
+var(CL.return) #variance
+sd(CL.return) #standard deviation
+
+MeanAD(CL.return) #mean absolute deviation
+mad(CL.return) #median absolute deviation
+
+boxplot(CL.return2, horizontal=TRUE, main="Crude Oil Return")
+
+range(CL.return) #minimum and maximum value (range)
+CL.quantiles <- quantile(CL.return)
+CL.quantiles #quantiles
+quantile(CL.return, probs=c(0.05, 0.95)) #quantiles 5% and 95%
+quantile (CL.return, tauseq)
+CL.IQR <- IQR(CL.return) #Interquantile range (75% quantile - 25% quantile)
+CL.IQR
+
+CL.outliers.lower <- -0.0051955884 -1.5*CL.IQR #Q25% = -0.0051955884
+CL.outliers.lower
+
+CL.outliers.upper <- 0.0057851264 +1.5*CL.IQR #Q75% = 0.0057851264
+CL.outliers.upper
+```
+
+As we could already identify from the visualisation of the log return in the beginning, the calculations of variance (gold = 0.00055, crude oil = 0.00016) and standard deviation (gold = 0.0236, crude oil = 0.0126) confirm that gold is more volatile than crude oil. This means that the price of gold is changing more in value than crude oil. Higher volatility in returns is associated with higher risk but also offers the chance of higher returns.
+
+We identified skewness in the distributions. The standard deviations is likely to be influenced by outliers, therefore we also calculated other measurements to identify the spread. Also, the more robust mean absolute deviation and median absolute deviation confirm that gold's variability is higher than the one of crude oil.
+
+------------------------------------------------------------------------
+
+## Outliers
+
+We also have to consider outliers,. Quantiles give us more insights into the identification of outliers. The boxplot charts help us to understand the data easier. If we look at the quantiles, we can at first identify the range. 0% quantile is the minimum value, 50% quantile is the median, and 100% quantile is the maximum value. In this case, gold has a range from -12% to +14%. Crude oil's range lies between -10% to +12%. The median log return for gold is +0.048% and for crude oil it is +0.036%.
+
+It is common to calculate the interquantile range (IQR) which defines how spread out the "middle" values are. Outliers are values that lie without the range of: `[Q1 - 1.5*IQR ; Q3 + 1.5*IQR]`. For gold outliers are below -4.75% and above +4.75%. For crude oil the outliers are defined below -2.17% and above +2.23%.
+
+```{r}
+plot(GOLD.return, main = "Gold daily returns", xlab = "index", type = "l", ylab = "log return")
+
+abline(h=GOLD.outliers.lower, col = "red")
+abline(h=GOLD.outliers.upper, col = "red")
+
+
+plot(CL.return, main = "Crude Oil daily returns", xlab = "index", type = "l", ylab = "log return")
+
+abline(h=CL.outliers.lower, col = "red")
+abline(h=CL.outliers.upper, col = "red")
+```
+
+```{r}
+halfnorm(abs(GOLD.return),nlab = 40, main = "return", ylab = "Sorted data") 
+
+halfnorm(abs(CL.return),nlab = 40, main = "return", ylab = "Sorted data")
+
+```
+
+Half normal-plots are used to identify outliers. The half-normal plots for gold and crude oil are similar to each other. For both after around 2 quantiles, the data points not straight on the line anymore. This seems to affect for both around 40-50 data points. We labeled the first 40.
+
+We have already expected this in the first impression of the datasets that there are outliers around 1000. Through this test, it is confirmed that the largest outlier for gold is 986 and for crude oil 981. Both are followed by other data points around 1000.
+
+## Univariate Tests
+
+### Shapiro-Wilk Test of Normality
+
+```{r}
+## Shapiro-Wilk test 
+shapiro.test(GOLD.return2)
+
+shapiro.test(CL.return2)
+```
+
+We performed Shapiro-Wilk tests which showed that neither the log returns of gold (W = 0.94393, p \< 0.05) nor crude oil (W = 0.877, p \< 0.05) were normally distributed. Therefore, we can assume non-normality in both cases.
+
+```{r}
+qqnorm(GOLD.return)
+qqline(GOLD.return)
+
+qqnorm(CL.return)
+qqline(CL.return)
+```
+
+This visualisations of the Quantile-Quantile (QQ) plot for both commodities show us that neither gold nor crude oil are normally distributed, as the tails of both are heavier than those of a normal distribution. This means that the data points would be lying on the line in the QQ plot if they were normally distributed. In both cases, the data points in the left tail lie below and in the right tail above the line. This means that in the negative log returns they are higher than a normal distribution and in the positive log returns are even more positive than a normal distribution.
+
+### Kolmogorov-Smirnov Test of Normality
+
+```{r}
+ks.test(GOLD.return2, "pnorm")
+ks.test(CL.return2, "pnorm")
+```
+
+We receive a warning for both tests because there are ties (repeating values) within our distribution. Anyways, since the p-values from both Kolmogorov-Smirnov tests are below 0.05, we can reject the null hypothesis that the datasets come from a normal distribution.
+
+### Jarque-Bera Test of Normality
+
+```{r}
+jarqueberaTest(GOLD.return2)
+jarqueberaTest(CL.return2)
+```
+
+The p-values in the Jarque-Bera test from both distributions of the log returns of gold and crude oil are both below 0.05, so we can reject the null hypothesis that the datasets come from a normal distribution.
+
+### D'Agostino Test of Skewness
+
+```{r}
+agostino.test(GOLD.return, alternative = "two.sided")
+agostino.test(CL.return, alternative = "two.sided")
+```
+
+The D'Agostino test of skewness identifies if the data is symmetrical, therefore it is the null hypothesis that the distributions are not skewed. The p-values of both distributions are above 0.05, so in this case we do not reject the null hypothesis. The distributions are not skewed.
+
+This is interesting because we expected them from the prior information to be slightly skewed but apparently the skewness is too low to be statistically significant.
+
+### Anscombe-Glynn Test of Kurtosis
+
+```{r}
+anscombe.test(GOLD.return, alternative = "two.sided")
+anscombe.test(CL.return, alternative = "two.sided")
+```
+
+The null hypothesis of the Anscombe-Glynn test is that the kurtosis of the distributions of the log returns of gold and crude oil are equal to three which is the kurtosis of a normal distribution. The p-value of the test is below 0.05 and therefore, we can reject the null hypothesis. Both distributions of the commodities are have heavier tails than a normal distribution, i.e. gold = 7.4 and crude oil = 16.2.
+
+### Bonett-Seier Test of Kurtosis
+
+```{r}
+bonett.test(GOLD.return, alternative = "two.sided")
+bonett.test(CL.return, alternative = "two.sided" )
+```
+
+The Bonett-Seier test is also testing the kurtosis of a normal distribution as its null hypothesis. We tested this for both distributions and as both p-values are below 0.05, we can prove that both have heavy tails.
+
+### Anderson-Darling Goodness of Fit Test
+
+```{r}
+ad.test (GOLD.return2, plnorm)
+ad.test (CL.return2, plnorm)
+```
+
+The Anderson-Darling Goodness of Fit test tests the statistical significance of the null hypothesis, that the dataset is from a normal distribution. For both datasets, the p-values are below 0.05 and we can reject the null hypothesis. The log returns of gold and crude oil are both not normal distributions.
+
+## Multivariate Tests
+
+### Data Preparation
+
+```{r}
+GOLD.final = Gold.xts["2016-04-21/2022-04-21"]
+CL.final = CL.xts["2016-04-21/2022-04-21"]
+
+colnames(GOLD.final)="Price"
+colnames(CL.final)="Price"
+
+length (GOLD.final)
+length (CL.final)
+
+return.GOLD = Return.calculate(GOLD.final, method = "log")
+return.CL = Return.calculate(CL.final, method = "log")
+plot (return.GOLD)
+plot (return.CL)
+
+GOLD.return <- fortify(return.GOLD)
+CL.return <- fortify(return.CL)
+```
+
+We prepared the datasets to be in xts format and labeled each datapoint with its dates. We made sure that the datasets have the same lengths (1511 days) which is the case. In the end we transformed the xts objects into dataframes for further analyses.
+
+### Pearson's Product Moment Correlation Coefficient T-Test
+
+```{r}
+X <- GOLD.return$return.GOLD[-1]
+Y <- CL.return$return.CL[-1]
+X <- GOLD.return$Price
+Y <- CL.return$Price
+
+cor.test(X, Y, method="pearson", alternative="two.sided", conf.level = 0.95)
+correlationTest(X, Y)
+```
+
+Pearson's product moment correlation coefficient t-test tests if two data sets are correlating with each other, i.e. the null hypothesis assumes that the correlation between them is zero.
+
+The Pearson's test estimates a correlation of 13.62% between the log returns of crude oil and gold. The p-value (1.087e-07) was below 0.05 which rejects the null hypothesis of non-correlation. The results are also trustworthy because the confidence interval does not cross zero. The correlation is a positive relationship, which indicates that when the prices of one go up, the other one's prices also follow to a certain degree.
+
+### Spearman Rank Correlation Test
+
+```{r}
+cor.test(X, Y, method="spearman", alternative="two.sided")
+```
+
+We receive the same warning as in the Kolmogorov-Smirnov test because there are the same prices at different days within the dataset. We will perform the test anyways and it gives us results.
+
+The Spearman Rank Correlation test is similar to the Pearson's Correlation test and tests the null hypothesis of zero correlation. The p-value for the correlation between the log returns of gold and crude oil is below 0.05, therefore we reject the null hypothesis. The two data sets correlate with each other.
+
+The Spearman test estimates a correlation of 10.14% between the log returns of crude oil and gold. This is slightly lower than the correlation coefficient calculated by Pearson's correlation test but supports the same argument.
+
+### Kendall's Tau Correlation Coefficient Test
+
+```{r}
+cor.test(X,Y,method="kendal",alternative="two.sided")
+```
+
+Kendall's rank correlation coefficient test also tests the null hypothesis of zero correlation.
+
+The p-value for the correlation between the log returns of gold and crude oil is below 0.05, therefore we reject the null hypothesis. The two data sets correlate with each other. In this test the correlation coefficient tau is 6.8% which is even lower than the previous two tests. In general, all three tests did prove that the two commodities returns are positively correlated.
+
+## Two Sample T-Tests for the Difference in Sample Means
+
+```{r}
+t.test(X,Y, alternative = "two.sided", var.equal=TRUE)
+```
+
+We use this Two Sample t-test to identify if the difference between the mean of two samples is significantly different from each other. In this case we test if the mean return over time of both commodities is the same or not. The p-value 0.7963 is above the critical value of 0.05 and therefore we cannot reject the null hypothesis of them being equal but the 95% confidence interval includes zero implicating that there is no statistically significant difference between the groups.
+
+## Granger Causality
+
+```{r}
+grangertest(GOLD$GOLD.Open ~ CL$CL.Adjusted, order = 1)
+grangertest(GOLD$GOLD.Open ~ CL$CL.Volume, order = 1)
+grangertest(GOLD$GOLD.Open ~ CL$CL.Close,, order = 1)
+```
+
+We have the null hypothesis for each of the cases that the gold open price can be used to forecast:
+
+a)  crude oil's adjusted closing price
+
+b)  crude oil's volume at closing
+
+c)  crude oil's closing price.
+
+The null hypothesis can be rejected if the p-value is below 0.05 (the critical value). This is the case for the volume. There is no causality for the relationship between the gold opening price and the volume of crude oil on that day. Otherwise, we cannot reject the null hypothesis for the causality between the gold opening price and crude oil's adjusted or closing price. Therefore, it might be valuable to know the prices of gold to forecast the future prices of crude oil.
+
+```{r}
+grangertest(CL$CL.Open ~ GOLD$GOLD.Adjusted, order = 1)
+grangertest(CL$CL.Open ~ GOLD$GOLD.Volume, order = 1)
+grangertest(CL$CL.Open ~ GOLD$GOLD.Close,, order = 1)
+```
+
+We have the null hypothesis for each of the cases that the crude oil open price can be used to forecast:
+
+a)  gold's adjusted closing price
+
+b)  gold's volume at closing
+
+c)  gold's closing price.
+
+The null hypothesis can be rejected if the p-value is below 0.05 (the critical value). This is the case for all the cases. The crude oil opening price is not valuable to forecast the future values of gold.
+
+## Volatility and Stationarity
+
+### Gold Time Series
+
+```{r}
+GOLD.data = coredata(Gold.xts)
+GOLD.return3 = diff(log(coredata(Gold.xts)))
+
+#Removing the First Observation:
+GOLD.return3 = GOLD.return3 [-1]
+
+plot(Gold.xts)
+```
+
+The data does not have a clear trend (upwards, downwards, no trend). In the beginning it's more about a downwards trend, then followed by a steep upwards trend and then downwards and upwards again.
+
+We can identify that there seems to be a regular pattern in the peaks and lows of the time series but it is difficult to assess from broad visualisation how regular this pattern is. Also it is difficult to assess if the pattern is increasing or decreasing during the time (no, additive or multiplicative seasonality).
+
+------------------------------------------------------------------------
+
+#### Auto-Correlation Function (ACF)
+
+To assess if the data sets are stationary, i.e. that the value *Pt* is indicating the value of *Pt+k*, where *k\>=1*, we have to explore the time series through the Auto-Correlation Function (ACF). We tested on the original price time series and the log differentiated price time series if the null hypothesis that the autocorrelation coefficient is zero. If the sample exceeds the bounds (line in blue), the null hypothesis is rejected. If the null hypothesis is failed to be rejected, the time series is white noise means that the values are independent and have no correlation with any other value in the time series.
+
+For the original gold price time series, the sample ACF is approximating the zero very slowly which can mean two options: nonstationarity or stationarity with long-memory dependence.
+
+In contrast, the log returns of gold is decaying to zero directly. The autocorrelation are small and crosses the bounds only at k = 25 and the log returns at k=12 and k=25 indicating that they are statistically different from zero, which lets us assume that the time series is not white noise but there is a pattern from its own prior values. Still, the results from the ACF indicate that the dependence is really weak and might be not useful to forecast.
+
+We tested the null hypothesis that the series is not autocorrelated for k=1 to k=10 through the Box-Ljung Test. For all of them, we failed to reject the null hypothesis because the p-values were greater than the critical value 0.05. Therefore, we cannot confirm that there is one to ten days lags that might be autocorrelated but we also cannot confirm that there is an independence from its prior values.
+
+```{r}
+# ACF
+acf(GOLD.data)
+acf(GOLD.return3)
+
+#Ljung-Box test
+for (k in c(1:10)) {
+  print(k)
+  print(Box.test(GOLD.return3, lag=k, type="Ljung-Box"))
+}
+```
+
+#### Autoregressive model (AR)
+
+Since we identified that the time series is non-stationary, it can be problematic for our further models. It is important to understand why. Therefore, we apply the Autoregressive model AR(1).
+
+The coefficient of the AR model for gold is really small with 0.0096 and the standard error (0.0257) is 2.7 times the coefficient which means it is statistically not significant.
+
+```{r}
+GOLD.AR = arima(GOLD.return3, order = c(1,0,0)) 
+print(GOLD.AR)
+```
+
+The residuals are still not autocorrelated which we can identify because the lags are not crossing the bounds of the critical value. There is only a few non-regular small values that are crossing but this is expected to be happened by chance. The Ljung-Box test confirms that the series has no statistically significant lags because we failed to reject the null hypothesis (p-values \> 0.05) for multiple k tested. The distribution of the residuals of log gold returns is heavy tailed.
+
+```{r}
+residuals.GOLD <- GOLD.AR$residuals
+
+plot(residuals.GOLD)
+acf(residuals.GOLD)
+qqnorm(residuals.GOLD)
+qqline(residuals.GOLD)
+
+#Ljung-Box test
+for (k in c(1, 5, 10, 15, 20, 25, 30)) {
+  print(k)
+  print(Box.test(residuals.GOLD, lag=k, type="Ljung-Box"))
+}
+```
+
+#### Generalized Autoregressive Conditional Heteroscedasticity model (GARCH)
+
+We tested the GARCH model on the Gold log return time series to check if the return has volatility clustering (or: or heteroskedasticity). This means that parts of the time series have a different volatility from others. The GARCH model in financial context specifically identifies conditional heteroskedastic, e.g. panicking in the financial markets. The volatility is therefore dependent on the prior changes to volatility.
+
+We fitted the data to different GARCH(p,q) models where p = 1 and q = 1, but the residuals were tried to be fitted to different distributions (normal distribution, Student t distribution, skewed Student t distribution).
+
+We were evaluating all the GARCH, ARMA-GARCH, APARCH and GJR-GARCH models based on the following tests. For the reason of readability we will only include the final model which was fitting best to the data and explain the evaluation process (null hypothesis, p-values, meaning) as an example on the case of GARCH(1,1) with the residuals fitted to a normal distribution:
+
+[**Normal Distribution**]{.ul}
+
+```{r}
+garch.GOLD.spec <- ugarchspec(mean.model=list(model="SGARCH", garchOrder = c(1,1), armaOrder=c(0,0)), distribution="norm")
+garch.GOLD.2 <- ugarchfit(garch.GOLD.spec, GOLD.return3)
+show(garch.GOLD.2)
+plot(garch.GOLD.2)
+```
+
+The coefficients were statistically significant (p-value \<0.05) except "mu" (the mean value, by default NULL) with the p-value of 0.93. The closer the p-value is to zero, the more likely it is that the coefficient is not zero. If the value is zero because it is statistically not relevant, the model is simplified because its a coefficient less.
+
+In this case, it is not relevant that the mean value mu is zero because it is the default that it is not existent. Therefore, it does not mean anything important for our model.
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(0,0,0)
+    Distribution	: norm 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error    t value Pr(>|t|)
+    mu     -0.000045    0.000548  -0.081595 0.934968
+    omega   0.000007    0.000001   4.514976 0.000006
+    alpha1  0.031450    0.002268  13.867373 0.000000
+    beta1   0.955348    0.004068 234.868441 0.000000
+
+The information criteria give us four values by different statistical methods to evaluate the model. The lower the criteria are, the better for our model.
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -4.7582
+    Bayes        -4.7441
+    Shibata      -4.7582
+    Hannan-Quinn -4.7529
+
+The *Ljung-box tests* tests the null hypothesis that there is no serial autocorrelation in the residuals. The results in this case indicate that the p-value is above the critical value of 0.05. It means we fail to reject the null hypothesis that the series is not autocorrelated. This means that the residuals are not autocorrelated which is ideal for our model. If the residuals are still autocorrelated this means that the model has not absorbed all the information, which we are trying to avoid in order to receive the model which represents that time series best.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                     0.2528  0.6151
+    Lag[2*(p+q)+(p+q)-1][2]    0.2717  0.8117
+    Lag[4*(p+q)+(p+q)-1][5]    0.8795  0.8863
+    d.o.f=0
+    H0 : No serial correlation
+
+The *Jarque Bera Test* tests the null hypothesis that the residuals are normally distributed. In this case, the p-value is lower than the critical value. Therefore, we can reject the null hypothesis that the residuals are normally distributed. This means the residuals are not normally distributed which is not ideal in this case.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     112.4    2.900e-15
+    2    30     124.5    8.578e-14
+    3    40     142.9    8.885e-14
+    4    50     148.7    5.600e-12
+
+We can identify this also easily by the *Empirical Density of Standardized Residuals plot*. The alternative to the normal distribution are the student t distribution, skewed normal distribution or skewed student t distribution.
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(0,0,0)
+    Distribution	: norm 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error    t value Pr(>|t|)
+    mu     -0.000045    0.000548  -0.081595 0.934968
+    omega   0.000007    0.000001   4.514976 0.000006
+    alpha1  0.031450    0.002268  13.867373 0.000000
+    beta1   0.955348    0.004068 234.868441 0.000000
+
+![](images/paste-667B2493.png)
+
+[**Student T distribution**]{.ul}
+
+```{r}
+garch.GOLD.spec <- ugarchspec(mean.model=list(model="SGARCH", garchOrder = c(1,1), armaOrder=c(0,0)), distribution="std")
+garch.GOLD.2 <- ugarchfit(garch.GOLD.spec, GOLD.return3)
+show(garch.GOLD.2)
+plot(garch.GOLD.2)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(0,0,0)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error   t value Pr(>|t|)
+    mu     -0.000053    0.000464  -0.11471  0.90867
+    omega   0.000005    0.000003   1.54987  0.12117
+    alpha1  0.033378    0.005959   5.60173  0.00000
+    beta1   0.959338    0.004519 212.28350  0.00000
+    shape   3.934283    0.410623   9.58125  0.00000
+
+The coefficients mu (mean value) and omega (the constant coefficient of the variance equation, by default 1e-6) are not statistically significant.
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -4.8834
+    Bayes        -4.8658
+    Shibata      -4.8834
+    Hannan-Quinn -4.8769
+
+Each information criteria is lower than the previous GARCH(1,1) model which means it is a better fit.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                     0.2884  0.5913
+    Lag[2*(p+q)+(p+q)-1][2]    0.3014  0.7949
+    Lag[4*(p+q)+(p+q)-1][5]    0.9363  0.8739
+    d.o.f=0
+    H0 : No serial correlation
+
+Still, the Ljung-Box test indicates that the residuals are not autocorrelated.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     27.39      0.09578
+    2    30     39.73      0.08849
+    3    40     43.79      0.27544
+    4    50     57.10      0.19937
+
+The Adjusted Pearson Goodness-of-Fit Test has a p-value larger than 0.05 and therefore, we cannot reject that the residuals fit the Student T distribution which we can also observe from the *Empirical Density of Standardized Residuals plot*. The student t distribution fits the residuals much better than the normal distribution.
+
+![](images/paste-4964F02B.png)
+
+To fit the residuals to a skewed normal distribution or skewed Student T distribution gave us worse information criteria and the residuals did not fit either of those distributions. We can therefore, accept [***GARCH(1,1) with the residuals fitted to a Student T distribution***]{.ul} as the [***best model***]{.ul}.
+
+#### ARMA + GARCH model
+
+We fitted the time series to the ARMA + GARCH model which combines the forecasting based on prior values with the GARCH model for conditional heteroskedasticity.
+
+All different versions of p,q and r,s did not lead to the time series' residuals fitting to a normal distribution. Therefore we can reject all models that are trying to fit the residuals to a normal distribution model.
+
+The model that worked best for ARMA-GARCH was [**ARMA(1,1)-GARCH(1,1) with Student T distribution model**]{.ul}.
+
+```{r}
+arma.garch.t = ugarchspec(mean.model = list(armaOrder=c(1,0)), variance.model = list(garchOrder=c(1,1)), distribution.model = "std")
+
+GOLD.garch.t = ugarchfit(data=GOLD.return3, spec=arma.garch.t)
+show(GOLD.garch.t)
+plot(GOLD.garch.t)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(1,0,1)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error    t value Pr(>|t|)
+    mu     -0.000044    0.000442  -0.099134  0.92103
+    ar1     0.372449    0.502571   0.741087  0.45864
+    ma1    -0.401399    0.495406  -0.810242  0.41780
+    omega   0.000005    0.000003   1.513934  0.13004
+    alpha1  0.033087    0.006234   5.307236  0.00000
+    beta1   0.959415    0.004446 215.787689  0.00000
+    shape   3.879396    0.400318   9.690775  0.00000
+
+For these parameters "mu", "ar1", "ma1" and "omega" are statistically not significant. This means that the ARMA could be rejected and a usual GARCH model could work better.
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -4.8820
+    Bayes        -4.8573
+    Shibata      -4.8820
+    Hannan-Quinn -4.8728
+
+Still, the ARMA(1,1)-GARCH(1,1) model gives us worse information criteria than the usual GARCH model as it has higher values.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                      2.599  0.1070
+    Lag[2*(p+q)+(p+q)-1][5]     3.463  0.2215
+    Lag[4*(p+q)+(p+q)-1][9]     4.290  0.6219
+    d.o.f=2
+    H0 : No serial correlation
+
+The residuals are not autocorrelated.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     24.21       0.1881
+    2    30     36.51       0.1593
+    3    40     37.80       0.5246
+    4    50     53.79       0.2960
+
+The residuals do fit a Student T distribution which is ideal.
+
+#### APARCH model
+
+The APARCH model additionally absorbs the asymmetry of returns to "news shocks". Again, we tried different parameters for the model and found that the following model represents the time series best:
+
+[**APARCH(r=1, s=1, p=1, q=0) with the residuals fitted to a Student T distribution**]{.ul}
+
+```{r}
+aparch.GOLD.spec <- ugarchspec(mean.model=list(armaOrder=c(1,0)), variance.model = list(model="apARCH", garchOrder = c(1,1)), distribution="std")
+  
+GOLD.aparch.t = ugarchfit(data=GOLD.return3, spec=aparch.GOLD.spec)
+
+show(GOLD.aparch.t)
+plot(GOLD.aparch.t)
+```
+
+The optimal parameters have some not significant coefficients included, i.e. mu (mean value), ar1 (the autoregressive ARMA coefficients), omega (the constant coefficient of the variance equation), alpha1 (the value or vector of autoregressive coefficients) and gamma1 (leverage).
+
+
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: apARCH(1,1)
+    Mean Model	: ARFIMA(1,0,0)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error    t value Pr(>|t|)
+    mu     -0.000027    0.000451  -0.059187 0.952803
+    ar1    -0.027167    0.022943  -1.184084 0.236380
+    omega   0.000004    0.000016   0.276570 0.782110
+    alpha1  0.031971    0.018704   1.709283 0.087398
+    beta1   0.960040    0.007067 135.843228 0.000000
+    gamma1 -0.067685    0.111258  -0.608357 0.542950
+    delta   2.028889    0.584051   3.473824 0.000513
+    shape   3.878202    0.361553  10.726522 0.000000
+
+The information criteria have lower values than the ARMA-GARCH or GARCH model which means it has a higher accuracy.
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -4.8806
+    Bayes        -4.8524
+    Shibata      -4.8807
+    Hannan-Quinn -4.8701
+
+The residuals are not autocorrelated.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                      2.360  0.1245
+    Lag[2*(p+q)+(p+q)-1][2]     2.370  0.1148
+    Lag[4*(p+q)+(p+q)-1][5]     2.989  0.4340
+    d.o.f=1
+    H0 : No serial correlation
+
+The residuals follow the Student T distribution.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     24.69       0.1710
+    2    30     38.97       0.1022
+    3    40     42.46       0.3241
+    4    50     55.98       0.2295
+
+The plot for the residuals shows how well the residuals follow the student t distribution.
+
+![](images/paste-5682596F.png)
+
+#### GJR-GARCH model
+
+The GJR-Garch model is considering that negative shocks have a higher impact to the variance than positive shocks. It is a similar model to the APARCH model.
+
+[**GJR-GARCH(r=1, s=1, p=1, q=1)**]{.ul} with the residuals fitted to a Student T distribution was the only choice of parameters which did not lead to remaining autocorrelation in the residuals or a missing fit to the distribution (normal or student t). Therefore, it is the best fitting set of parameters for this GJR-GARCH model.
+
+```{r}
+gjrgarch.GOLD.spec <- ugarchspec(mean.model=list(armaOrder=c(1,1)), variance.model = list(model="gjrGARCH", garchOrder = c(1,1)), distribution="std")
+  
+GOLD.gjrgarch.t = ugarchfit(data=GOLD.return3, spec=gjrgarch.GOLD.spec)
+
+show(GOLD.gjrgarch.t)
+#plot(GOLD.gjrgarch.t)
+```
+
+The model has multiple non-significant parameters. The most important ones seem to be the "shape" (shape parameter of the conditional distribution) and "beta1" (the value or vector of variance coefficients).
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: gjrGARCH(1,1)
+    Mean Model	: ARFIMA(1,0,1)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error    t value Pr(>|t|)
+    mu     -0.000027    0.000443  -0.061278 0.951138
+    ar1     0.371159    0.442944   0.837937 0.402066
+    ma1    -0.400194    0.436635  -0.916540 0.359384
+    omega   0.000005    0.000003   1.507667 0.131640
+    alpha1  0.037373    0.009822   3.804956 0.000142
+    beta1   0.959595    0.004389 218.654394 0.000000
+    gamma1 -0.008843    0.014636  -0.604180 0.545724
+    shape   3.870249    0.399417   9.689747 0.000000
+
+The information criteria are only slightly lower than the APARCH model (i.e. it lies 0.0003 point under the information criteria of the APARCH model, e.g. GJR-GARCH: Akaike -4.8809, APARCH: Akaike -4.8806).
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -4.8809
+    Bayes        -4.8527
+    Shibata      -4.8810
+    Hannan-Quinn -4.8704
+
+The residuals are not autocorrolated.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                      2.652  0.1034
+    Lag[2*(p+q)+(p+q)-1][5]     3.504  0.2044
+    Lag[4*(p+q)+(p+q)-1][9]     4.349  0.6076
+    d.o.f=2
+    H0 : No serial correlation
+
+The residuals are fitting to the student t distribution.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     23.05       0.2352
+    2    30     29.75       0.4267
+    3    40     37.91       0.5197
+    4    50     43.92       0.6789
+
+#### Interpretation of the Volatility
+
+The final best fitting model for the gold returns is the GARCH model which makes sense because the ACF function could not prove an autocorrelation for gold log returns. Therefore, the gold returns are not driven by its prior information. The best fit to the GARCH model implies that the gold returns are highly impacted by new information on the market that change the volatility immense and in other times the volatility is low. Therefore, gold seems to be a stable investment during calm times and seems to have high-risk due to volatility during crisis or other events. The less fit to the APARCH or GJR-GARCH models explains that the leverage effect (negative shocks have an higher impact than positive ones) does not seem to have a huge impact on the gold returns.
+
+## Crude Oil Time Series
+
+The observations from the time series plot itself, are very similar to those from the gold price time series. No clear trend, probably there is a seasonality and pattern but its difficult to assess.
+
+```{r}
+CL.data = coredata(CL.xts)
+CL.return3 = diff(log(coredata(CL.xts)))
+
+#Removing the First Observation:
+CL.return3 = CL.return3 [-1]
+
+plot(CL.xts)
+```
+
+#### Auto-Correlation Function (ACF)
+
+The original time series seems to be again nonstationary while the log returns seem to be stationary as they cross the critical value bounds multiple times negatively and positively and the sample ACF decays to zero quickly indicating that the returns are stationary. The strongest correlation seems to be a lag of one day, likely to reverse the next day's return.
+
+The Ljung-Box test confirmed that the series is not white noise because it has small p-values below the critical value of 0.05 for multiple k from 1 to 10, rejecting the null hypothesis and confirming that the time series is autocorrelated for one or more k. This allows us to make predictions and reasonable forecasts from the time series data. There is at least one lag between 1 and 10 days which is statistically significant.
+
+```{r}
+# ACF
+acf(CL.data)
+acf(CL.return3)
+
+#Ljung-Box test
+for (k in c(1:10)) {
+  print(k)
+  print(Box.test(CL.return3, lag=k, type="Ljung-Box"))
+}
+```
+
+#### Autoregressive model (AR)
+
+Now, we want to fit the autoregressive (AR) process to the crude oil. We chose the AR coefficient at 1 because it was furthest outside of the bounds in the ACF test. The AR model shows that for a lag of one day, the coefficient is -0.1536 which is below 1, and therefore indicates a weak stationarity. It is still statistically significant as it is 6.05 times its standard error of 0.0254. Sigma\^2 is 0.0002 which means that the p-value is near zero. Still, the value is very small and even though there is some valuable information from today's return for tomorrow's return, it is very inaccurate which means it might be not worth the efforts.
+
+```{r}
+CL.AR = arima(CL.return3, order = c(1,0,0)) 
+print(CL.AR)
+```
+
+Further, we applied the residuals from the AR model to the ACF test. The lags of 1 and 2 are not crossing the bounds of the critical value, indicating that there is no autocorrelation left but in the next days lags of 3, 4, 7, 9, 10, 12 and 15 are crossing the bounds, . This could be by chance or could have a statistical significance. We tested through the Ljung-Box test if at least one lag is statistically significant for k=1 to 10. From k=3 onwards, the p-values are below the critical value of 0.05 and let us reject the null hypothesis that the residuals are uncorrelated. The model AR(1) therefore is not an fully adequate fit for the time series because some autocorrelation seems to be remaining. If those remaining autocorrelation would be very helpful in the practice to forecast the prices, is debatable. The visualisation of the residuals shows us volatility clustering and the QQ plot indicates that the distribution has heavy tails.
+
+```{r}
+residuals.CL <- CL.AR$residuals
+plot(residuals.CL)
+acf(residuals.CL)
+qqnorm(residuals.CL)
+qqline(residuals.CL)
+
+#Ljung-Box test
+for (k in c(1:10)) {
+  print(k)
+  print(Box.test(residuals.CL, lag=k, type="Ljung-Box"))
+}
+```
+
+#### Generalized Autoregressive Conditional Heteroscedasticity model (GARCH)
+
+As for gold log returns, we could not fit a GARCH model to the data where the residuals fitted a normal distribution. Therefore, we continue to fit a student t distribution to the residuals. We also fitted the GARCH(p,q) model with p=1, q=1 to the crude oil log return data.
+
+The best fitting model is [**GARCH(1,1)**]{.ul}:
+
+```{r}
+garch.CL.spec <- ugarchspec(mean.model=list(model="SGARCH", garchOrder = c(1,1), armaOrder=c(0,0)), distribution="std")
+garch.CL.2 <- ugarchfit(garch.CL.spec, CL.return3)
+show(garch.CL.2)
+#plot(garch.CL.2)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(0,0,0)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error  t value Pr(>|t|)
+    mu      0.000316    0.000208   1.5153 0.129690
+    omega   0.000016    0.000013   1.1744 0.240232
+    alpha1  0.183407    0.098939   1.8537 0.063776
+    beta1   0.714360    0.114233   6.2535 0.000000
+    shape   4.318109    0.987282   4.3737 0.000012
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -6.3251
+    Bayes        -6.3075
+    Shibata      -6.3252
+    Hannan-Quinn -6.3186
+
+The Box-Ljung test shows that the residuals are not autocorrelated because we cannot reject the null hypothesis (p-value \> 0.05).
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                      1.796  0.1802
+    Lag[2*(p+q)+(p+q)-1][2]     1.979  0.2662
+    Lag[4*(p+q)+(p+q)-1][5]     5.095  0.1457
+    d.o.f=0
+    H0 : No serial correlation
+
+The residuals fit the student t distribution.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     20.74       0.3513
+    2    30     38.50       0.1117
+    3    40     35.20       0.6438
+    4    50     56.77       0.2079
+
+#### ARMA + GARCH model
+
+The next model we are trying to fit as an alternative to the GARCH(1,1) model is the ARMA-GARCH model.
+
+We tried several specifications to find the best fitting model. We summarised our key metrics and our decision-making process in the following:
+
+None of those specifications for p,q and r,s did have the result of the residuals fitting the normal distribution. All the Akaike, Bayers, Shibata, Hannan-Quinn information criteria were worse (higher) than the results for the Student T distribution model choices. Therefore, we will not summarise the results here, as they are not an option to choose.
+
+[**The best fitting model for ARMA-GARCH was ARMA(1,1)-GARCH(1,1) with residuals fitted to a Student T distribution model.**]{.ul}
+
+```{r}
+arma.garch.t = ugarchspec(mean.model = list(armaOrder=c(1,1)), variance.model = list(garchOrder=c(1,1)), distribution.model = "std")
+
+CL.garch.t = ugarchfit(data=CL.return3, spec=arma.garch.t)
+show(CL.garch.t)
+plot(CL.garch.t)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: sGARCH(1,1)
+    Mean Model	: ARFIMA(1,0,1)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error  t value Pr(>|t|)
+    mu      0.000323    0.000190   1.7028 0.088612
+    ar1     0.534861    0.183150   2.9203 0.003496
+    ma1    -0.594522    0.172858  -3.4394 0.000583
+    omega   0.000016    0.000008   1.9391 0.052486
+    alpha1  0.184633    0.057663   3.2019 0.001365
+    beta1   0.713960    0.064280  11.1070 0.000000
+    shape   4.299409    0.485570   8.8544 0.000000
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -6.3273
+    Bayes        -6.3026
+    Shibata      -6.3273
+    Hannan-Quinn -6.3181
+
+Residuals are not autocorrelated based on Ljung-Box test.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                     0.1402  0.7081
+    Lag[2*(p+q)+(p+q)-1][5]    1.8081  0.9839
+    Lag[4*(p+q)+(p+q)-1][9]    3.0689  0.8799
+    d.o.f=2
+    H0 : No serial correlation
+
+Residuals fit the student T distribution based on Pearson Goodness of Fit test.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     28.53      0.07366
+    2    30     44.06      0.03621
+    3    40     45.12      0.23152
+    4    50     63.53      0.07934
+
+We can also identify this from the plot:
+
+![](images/paste-EEC156FE.png)
+
+#### APARCH model
+
+The APARCH model additionally absorbs the asymmetry of returns to "news shocks". Again, we tried different parameters for the model and found that the following model represents the time series best:
+
+[**APARCH(r=1, s=1, p=1, q=0) with the residuals fitted to a Student T distribution**]{.ul}
+
+```{r}
+aparch.CL.spec <- ugarchspec(mean.model=list(armaOrder=c(1,0)), variance.model = list(model="apARCH", garchOrder = c(1,1)), distribution="std")
+  
+CL.aparch.t = ugarchfit(data=CL.return3, spec=aparch.CL.spec)
+
+show(CL.aparch.t)
+#plot(CL.aparch.t)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: apARCH(1,1)
+    Mean Model	: ARFIMA(1,0,0)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error  t value Pr(>|t|)
+    mu      0.000231    0.000216   1.0702 0.284537
+    ar1    -0.049328    0.026889  -1.8345 0.066580
+    omega   0.000193    0.000276   0.6976 0.485426
+    alpha1  0.168797    0.035961   4.6939 0.000003
+    beta1   0.780811    0.050863  15.3514 0.000000
+    gamma1  0.194132    0.109400   1.7745 0.075978
+    delta   1.370471    0.330972   4.1407 0.000035
+    shape   4.453698    0.516000   8.6312 0.000000
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -6.3268
+    Bayes        -6.2986
+    Shibata      -6.3269
+    Hannan-Quinn -6.3163
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                  0.0002583  0.9872
+    Lag[2*(p+q)+(p+q)-1][2] 0.1514083  0.9996
+    Lag[4*(p+q)+(p+q)-1][5] 3.6400201  0.2887
+    d.o.f=1
+    H0 : No serial correlation
+
+Residuals are not autocorrelated based on Ljung-Box test.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     13.48       0.8132
+    2    30     23.86       0.7357
+    3    40     28.26       0.8985
+    4    50     37.95       0.8737
+
+Residuals fit the student T distribution based on Pearson Goodness of Fit test.
+
+![](images/paste-62ACF076.png)
+
+#### GJR-GARCH model
+
+The GJR-Garch model is another option to add seasonality to the shocks and consider the leverage effect. It is a similar model to the APARCH model.
+
+[**GJR-GARCH(r=1, s=1, p=1, q=1) with the residuals fitted to a Student T distribution**]{.ul}
+
+    Information Criteria
+    ------------------------------------
+                       
+    Akaike       2.2386
+    Bayes        2.2667
+    Shibata      2.2385
+    Hannan-Quinn 2.2491
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error  t value Pr(>|t|)
+    mu     69.124982    0.613899 112.6000 0.000000
+    ar1     0.996823    0.002442 408.1689 0.000000
+    ma1    -0.050118    0.027943  -1.7936 0.072876
+    omega   0.073231    0.024379   3.0038 0.002666
+    alpha1  0.129596    0.046731   2.7732 0.005550
+    beta1   0.741123    0.061316  12.0869 0.000000
+    gamma1  0.071321    0.050974   1.3992 0.161762
+    shape   4.467436    0.522163   8.5556 0.000000
+
+-   residuals are not autocorrelated based on Ljung-Box test
+
+-   residuals fit the student T distribution based on Pearson Goodness of Fit test
+
+```{r}
+gjrgarch.CL.spec <- ugarchspec(mean.model=list(armaOrder=c(1,1)), variance.model = list(model="gjrGARCH", garchOrder = c(1,1)), distribution="std")
+  
+CL.gjrgarch.t = ugarchfit(data=CL.return3, spec=gjrgarch.CL.spec)
+
+show(CL.gjrgarch.t)
+#plot(CL.gjrgarch.t)
+```
+
+    *---------------------------------*
+    *          GARCH Model Fit        *
+    *---------------------------------*
+
+    Conditional Variance Dynamics 	
+    -----------------------------------
+    GARCH Model	: gjrGARCH(1,1)
+    Mean Model	: ARFIMA(1,0,1)
+    Distribution	: std 
+
+    Optimal Parameters
+    ------------------------------------
+            Estimate  Std. Error  t value Pr(>|t|)
+    mu      0.000277    0.000196   1.4129 0.157687
+    ar1     0.546417    0.182502   2.9940 0.002753
+    ma1    -0.605864    0.171854  -3.5255 0.000423
+    omega   0.000013    0.000001  15.4621 0.000000
+    alpha1  0.120576    0.026401   4.5671 0.000005
+    beta1   0.746047    0.025407  29.3637 0.000000
+    gamma1  0.085793    0.049859   1.7207 0.085300
+    shape   4.374317    0.424280  10.3100 0.000000
+
+The GJR-GARCH model does fit the best from all the previous seen models fitted to the time series. It has the lowest information criteria. Also most of the parameters are statistically significant.
+
+    Information Criteria
+    ------------------------------------
+                        
+    Akaike       -6.3277
+    Bayes        -6.2995
+    Shibata      -6.3277
+    Hannan-Quinn -6.3172
+
+The residuals are not autocorrelated meaning that the GJR-GARCH model absorbed all the information.
+
+    Weighted Ljung-Box Test on Standardized Residuals
+    ------------------------------------
+                            statistic p-value
+    Lag[1]                     0.1174  0.7318
+    Lag[2*(p+q)+(p+q)-1][5]    1.9272  0.9701
+    Lag[4*(p+q)+(p+q)-1][9]    3.1705  0.8631
+    d.o.f=2
+    H0 : No serial correlation
+
+The residuals fit to the student t distribution.
+
+    Adjusted Pearson Goodness-of-Fit Test:
+    ------------------------------------
+      group statistic p-value(g-1)
+    1    20     28.64      0.07185
+    2    30     45.97      0.02363
+    3    40     52.48      0.07309
+    4    50     53.19      0.31596
+
+![](images/paste-64226F40.png)
+
+#### Interpretation of the Volatility
+
+The crude oil time series fits best to the GJR-GARCH model. This means that the autocorrelation, volatility clustering and the asymmetry of negative shocks over positive ones is important. For investors that means that they can expect the value to be similar to the prior day's value but at the same time, with low volatility during calm times but the returns are influenced by shocks if they happen. The negative ones have an higher impact on the volatility than the positive ones which makes it riskier for the investor.
+
+## Recommendations
+
+In general gold and crude oil had similar trends in the past six years and from the first impression, we expected them to have a lot similarities, especially because they both are commodities. In absolute figures, crude oil is priced at a range from 60-85 USD while gold only is priced at a range of 10-30 USD. We identified that both have a slow positive growth rate.
+
+Gold tends to have a higher variability than crude oil but we identified that crude oil tends more to have higher negative volatility during shocks while gold did not appear to have this asymmetry based from our volatility modelling. Both react to volatility clustering, meaning that during calm times, there is low volatility and high ones during stressful times on the market. We can definitely see the beginning of the COVID-19 pandemic in 2020. This makes sense as gold is known as "safe haven" during financial uncertainty and therefore, value changes during shocks makes sense. For crude oil in the beginning of the pandemic, there was much lower demand which started up the explosive behaviour. The returns were extremely changing between high positive and negative return rates.
+
+In such times, an investor has stressful times with the changing value of his/her portfolio. As gold and crude oil correlate with each other, the portfolio should not be mainly complemented with each other but with one or more other investment that correlate negatively with gold and/or crude oil as well as with investments who are less volatile to maintain security.
+
+# Project 3: **Regression specification and transformation**
+
+## Task
+
+> Use the data set USMacroG in R's AER package.
+>
+> This data set contains quarterly times series on 12 U.S. macroeconomic variables for the period 1950--2000.
+>
+> Or any other source of data to collect/use the following variables:
+>
+> -- consumption = real consumption expenditures, -- dpi = real disposable personal income, -- government = real government expenditures, and -- unemp = unemployment rate. -- Investment = investment -- Cpi = inflation -- interest = interest rate
+>
+> Predict changes in consumption from changes in the other variables.
+>
+> 1.  Identify any features, for instance outliers, mean, variance, skewness, kurtosis etc.
+>
+> 2.  Which variables can be used to get a better prediction?
+>
+> 3.  Which variables seem useful for predicting changes in consumption
+>
+> 4.  What does ANOVA table advise?
+>
+> 5.  Which variables are better to remove from the model, and in what order? (use stepAIC function)
+>
+> 6.  Do you want to add other variables? If yes -- which ones and why?
+>
+> 7.  Was the improvement large/significant?
+>
+> 8.  Check the leverage.
+>
+> 9.  Test which transformation can derive the better results.
+>
+> 10. Conclusions / interpretations
